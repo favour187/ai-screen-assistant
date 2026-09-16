@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: ai-screen-assistant-server
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    plan: starter
+    region: oregon
+    branch: main
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Secrets — set in Render dashboard (Environment → Add, never committed)
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: OPENROUTER_MODEL
+        value: anthropic/claude-3.5-sonnet
+      - key: OPENROUTER_APP_URL
+        value: https://github.com/your-org/ai-screen-assistant
+      - key: OPENROUTER_APP_NAME
+        value: AI Screen Assistant
+      # Timeouts/retries for large codegen — override only if needed
+      - key: OPENROUTER_TIMEOUT_MS
+        value: 120000
+      - key: OPENROUTER_STREAM_TIMEOUT_MS
+        value: 180000
+      - key: OPENROUTER_MAX_RETRIES
+        value: 3
+      - key: ALLOWED_ORIGINS
+        # Comma-separated allowlist. Use * only for dev. Set to real client origins in prod.
+        # Example: https://your-render.onrender.com,https://your-frontend.example.com
+        # Desktop file:// origins bypass CORS (no origin header), Android likewise — so keep mobile/desktop origins here if you serve a web UI.
+        value: https://your-desktop-app.example.com
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: RATE_LIMIT_MAX
+        value: 80
+      - key: RATE_LIMIT_VISION_MAX
+        value: 30
+      - key: RATE_LIMIT_STREAM_MAX
+        value: 40
+      - key: JSON_LIMIT
+        value: 15mb
+      - key: IMAGE_MAX_BYTES
+        value: 10485760
+      - key: MAX_TOKENS_MAX
+        value: 16384
+      - key: LOG_LEVEL
+        value: info
+      - key: LOG_PRETTY
+        value: false

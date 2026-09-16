@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
+  <title>AI Screen Assistant — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar" aria-label="Dashboard navigation">
+    <div class="sidebar-brand">
+      <div class="brand-mark">◉</div>
+      <div class="brand-text"><h1>Assistant</h1><p>Dashboard • Local-only</p></div>
+      <button class="theme-toggle" id="btnTheme" title="Toggle theme">◐</button>
+    </div>
+    <nav class="nav">
+      <div class="nav-section"><div class="nav-label">Manage</div>
+        <a class="nav-item active" data-view="overview"><span class="ico">◈</span> Overview</a>
+        <a class="nav-item" data-view="devices"><span class="ico">◧</span> Connected Devices</a>
+        <a class="nav-item" data-view="models"><span class="ico">✦</span> AI / Models</a>
+        <a class="nav-item" data-view="capture"><span class="ico">⚙</span> Capture Settings</a>
+        <a class="nav-item" data-view="usage"><span class="ico">◧</span> Usage</a>
+        <a class="nav-item" data-view="logs"><span class="ico">≡</span> Logs / Diagnostics</a>
+        <a class="nav-item" data-view="api"><span class="ico">⧉</span> API Reference</a>
+      </div>
+      <div class="nav-section"><div class="nav-label">System</div>
+        <a class="nav-item" id="navHealth"><span class="ico">●</span> API Status <span id="healthDot" class="pulse" style="margin-left:auto"></span></a>
+        <a class="nav-item" href="/health" target="_blank"><span class="ico">↗</span> Health JSON</a>
+        <a class="nav-item" href="/api/models" target="_blank"><span class="ico">↗</span> Models API</a>
+        <a class="nav-item" href="/" target="_blank"><span class="ico">↗</span> Root • Endpoints</a>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="connection-card">
+        <div style="display:flex; justify-content:space-between; align-items:center"><span class="xs" style="font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary)">Connection</span><span class="pulse" id="pulse"></span></div>
+        <div id="connStatus" class="badge">Checking…</div>
+        <!-- backend URL is env-driven (same origin) — hidden, not user-editable -->
+        <div id="connUrl" class="hidden"></div>
+        <div class="row" style="gap:6px; margin-top:8px"><button id="btnHealth" class="btn btn-sm">Refresh</button><span id="versionBadge" class="badge muted" style="margin-left:auto">v1.0.0</span></div>
+        <p class="hint small" style="margin:6px 0 0">Hosted backend — attached at deploy time.</p>
+      </div>
+      <div class="xs muted">No account • <span class="kbd">T</span> theme</div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div id="sidebarOverlay" class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('open'); this.classList.remove('open')"></div>
+    <header class="topbar">
+      <div class="topbar-left"><button id="btnMenu" class="menu-btn" aria-label="Open navigation">☰</button><div><h2 id="viewTitle">Overview</h2><p id="viewSubtitle">Live backend • secure • streaming</p></div><span id="liveBadge" class="badge accent hidden"><span class="badge-dot"></span> LIVE</span></div>
+      <div class="topbar-actions">
+        <!-- backend is env-driven (same origin) — no URL input. Hidden input kept for JS compat. -->
+        <input id="backendInput" type="hidden" />
+        <button id="btnSaveBackend" class="hidden">Save</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <!-- Overview -->
+      <section class="view" data-view="overview">
+        <div class="grid-3">
+          <div class="card stat-card"><div class="card-body"><div class="stat-icon" style="background:var(--accent-soft); color:var(--accent)">●</div><div><div class="xs muted">Backend</div><div id="statBackend" style="font-weight:700">Checking…</div><div id="statUptime" class="xs muted">—</div></div></div></div>
+          <div class="card stat-card"><div class="card-body"><div class="stat-icon" style="background:var(--info-soft); color:var(--info)">✦</div><div><div class="xs muted">Default Model</div><div id="statModel" style="font-weight:700">—</div><div id="statModelsCount" class="xs muted">—</div></div></div></div>
+          <div class="card stat-card"><div class="card-body"><div class="stat-icon" style="background:var(--success-soft); color:var(--success)">◧</div><div><div class="xs muted">Devices</div><div id="statDevices" style="font-weight:700">1 • This browser</div><div class="xs muted">Local storage</div></div></div></div>
+        </div>
+
+        <div class="grid-2" style="margin-top:16px">
+          <div class="card"><div class="card-header"><h3>Connected Devices — Local</h3><span class="badge muted">account-free</span></div><div class="card-body"><div id="devicesList" class="stack"></div><div class="hint small">Devices are stored locally in this browser. Each desktop/Android that hits <code>/health</code> from this dashboard is remembered here. No cloud account.</div></div></div>
+          <div class="card"><div class="card-header"><h3>Quick Actions</h3></div><div class="card-body stack">
+            <button class="btn btn-primary" onclick="document.querySelector('[data-view=capture]').click()">⚙ Configure Capture</button>
+            <button class="btn btn-outline" onclick="document.querySelector('[data-view=models]').click()">✦ Change Model</button>
+            <div class="row" style="gap:8px"><button class="btn btn-ghost" onclick="testStream()">Test stream (SSE)</button><button class="btn btn-ghost" onclick="clearLocal()">Clear local data</button></div>
+            <div id="quickLog" class="xs muted" style="white-space:pre-wrap; background:var(--bg-subtle); border:1px solid var(--border); border-radius:12px; padding:10px; max-height:120px; overflow:auto">—</div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- Devices -->
+      <section class="view hidden" data-view="devices">
+        <div class="card"><div class="card-header"><h3>Connected Devices</h3><button class="btn btn-sm" onclick="registerThisDevice()">+ Register this browser</button></div><div class="card-body"><div id="devicesFull" class="stack"></div></div></div>
+      </section>
+
+      <!-- Models -->
+      <section class="view hidden" data-view="models">
+        <div class="grid-2">
+          <div class="card"><div class="card-header"><h3>AI / Model Configuration</h3><span class="xs muted">Local override</span></div><div class="card-body stack">
+            <div class="field"><span class="field-label">Default model (backend)</span><div id="modelDefault" class="badge accent">—</div><span class="field-hint">Set via <code>OPENROUTER_MODEL</code> on server. Dashboard override is stored locally and sent per-request as <code>model</code>.</span></div>
+            <div class="field"><span class="field-label">Preferred model (this browser)</span><select id="modelSelect" class="select"><option value="">Default (server)</option></select><span class="field-hint">Saved in <code>localStorage.preferredModel</code> — desktop/Android read same key if you share backend URL.</span></div>
+            <div class="field"><span class="field-label">Available models (proxied)</span><div id="modelList" class="stack" style="max-height:320px; overflow:auto; border:1px solid var(--border); border-radius:12px; padding:8px; background:var(--bg-subtle)"></div></div>
+          </div></div>
+          <div class="card"><div class="card-header"><h3>Usage — Estimate</h3></div><div class="card-body stack">
+            <div class="row" style="justify-content:space-between"><span class="xs muted">Requests (local count)</span><strong id="usageRequests">0</strong></div>
+            <div class="loading-bar"></div>
+            <div class="row" style="justify-content:space-between"><span class="xs muted">Est. tokens (local)</span><strong id="usageTokens">0</strong></div>
+            <div class="hint small">Actual usage is metered by OpenRouter. This dashboard counts requests from this browser only (localStorage). No account.</div>
+            <button class="btn btn-ghost btn-sm" onclick="resetUsage()">Reset counters</button>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- Capture — simplified, defaults work -->
+      <section class="view hidden" data-view="capture">
+        <div class="card"><div class="card-header"><h3>Capture</h3><span class="badge accent">defaults work</span></div><div class="card-body stack">
+          <p class="hint">Capture works out of the box — no tuning needed. These are environment defaults (15s interval, 60% scale, 75 quality). Adjust only if you need to.</p>
+          <details class="card" style="padding:0; overflow:hidden; background:var(--bg-subtle)"><summary style="list-style:none; padding:12px 14px; cursor:pointer; display:flex; align-items:center; justify-content:space-between"><span class="field-label" style="margin:0">Advanced capture tuning (optional)</span><span class="badge muted">advanced</span></summary><div style="padding:12px; border-top:1px solid var(--border)">
+          <div class="settings-grid">
+            <label class="field"><span class="field-label">Interval <small id="cIntervalVal" class="badge accent">1500ms</small></span><input id="cInterval" class="range" type="range" min="500" max="5000" step="250" value="1500" /><span class="field-hint">Time between frame checks.</span></label>
+            <label class="field"><span class="field-label">Scale <small id="cScaleVal" class="badge accent">60%</small></span><input id="cScale" class="range" type="range" min="30" max="100" step="5" value="60" /><span class="field-hint">Resolution scale — lower saves memory.</span></label>
+            <label class="field"><span class="field-label">JPEG quality <small id="cQualityVal" class="badge accent">75</small></span><input id="cQuality" class="range" type="range" min="40" max="95" step="5" value="75" /><span class="field-hint">&lt;1.8MB cap per frame.</span></label>
+            <label class="field"><span class="field-label">Change threshold <small id="cDiffVal" class="badge accent">3%</small></span><input id="cDiff" class="range" type="range" min="0.5" max="20" step="0.5" value="3" /><span class="field-hint">32×32 luma diff.</span></label>
+          </div>
+          <div class="row" style="gap:16px; margin-top:12px; flex-wrap:wrap">
+            <label class="toggle"><input type="checkbox" id="cDiffChk" checked /><span class="toggle-track"></span><span class="toggle-label">Frame-change detection</span></label>
+            <label class="toggle"><input type="checkbox" id="cStream" checked /><span class="toggle-track"></span><span class="toggle-label">Stream (SSE)</span></label>
+            <label class="toggle"><input type="checkbox" id="cAuto" /><span class="toggle-track"></span><span class="toggle-label">Auto-analyze</span></label>
+          </div>
+          <div class="row" style="margin-top:12px; gap:8px"><button class="btn btn-primary" onclick="saveCapture()">Save locally</button><button class="btn btn-ghost" onclick="resetCapture()">Reset defaults</button></div>
+          </div></details>
+          <p class="xs muted">Desktop &amp; Android use the same defaults baked at build time — this panel only overrides localStorage for this browser.</p>
+        </div></div>
+      </section>
+
+      <!-- Usage -->
+      <section class="view hidden" data-view="usage">
+        <div class="card"><div class="card-header"><h3>Usage — Local Estimate</h3></div><div class="card-body stack">
+          <div class="grid-3">
+            <div class="card" style="padding:12px; background:var(--bg-subtle)"><div class="xs muted">Requests</div><div id="uReq" style="font-size:20px; font-weight:700">0</div></div>
+            <div class="card" style="padding:12px; background:var(--bg-subtle)"><div class="xs muted">Tokens (est.)</div><div id="uTok" style="font-size:20px; font-weight:700">0</div></div>
+            <div class="card" style="padding:12px; background:var(--bg-subtle)"><div class="xs muted">Errors</div><div id="uErr" style="font-size:20px; font-weight:700">0</div></div>
+          </div>
+          <div class="hint small">No account — counts only this browser. See OpenRouter dashboard for billing.</div>
+        </div></div>
+      </section>
+
+      <!-- Logs -->
+      <section class="view hidden" data-view="logs">
+        <div class="card"><div class="card-header"><h3>Logs / Diagnostics</h3><div class="row" style="gap:8px"><button class="btn btn-sm" onclick="refreshHealth()">Refresh</button><button class="btn btn-sm btn-ghost" onclick="clearLogs()">Clear</button></div></div><div class="card-body">
+          <div id="healthJson" class="code-block" style="margin:0"><div class="code-header"><span class="code-lang">json</span><span class="xs muted">GET /health</span><span class="code-actions"><button class="btn btn-sm btn-ghost" onclick="copyHealth()">Copy</button><button class="btn btn-sm btn-ghost" onclick="testStream()">Test SSE stream</button></span></div><pre class="code-pre" style="max-height:320px"><code id="healthPre">—</code></pre></div>
+          <div style="margin-top:12px" class="stack">
+            <div class="field"><span class="field-label">Recent client logs (local)</span><div id="clientLogs" style="background:var(--bg-subtle); border:1px solid var(--border); border-radius:12px; padding:10px; font-family:var(--font-mono); font-size:11px; white-space:pre-wrap; max-height:260px; overflow:auto; line-height:1.5">—</div></div>
+            <div class="hint small">Server logs are in Render → Logs (pino JSON). This panel shows browser diagnostics: health latency, model fetch, stream errors. All stored locally.</div>
+          </div>
+        </div></div>
+      </section>
+
+      <!-- API -->
+      <section class="view hidden" data-view="api">
+        <div class="card"><div class="card-header"><h3>API Reference</h3><span class="badge accent">shared protocol 1.0.0</span></div><div class="card-body stack">
+          <div class="hint small">All clients (Windows / Android / this dashboard) use the same Node backend. No SDK key ever leaves the server. Docs also at <code>/</code> (JSON).</div>
+          <div class="grid-2">
+            <div class="card" style="background:var(--bg-subtle)"><div class="card-header"><h3>GET /health</h3><span class="badge ok">public</span></div><div class="card-body stack"><div class="code-block"><div class="code-header"><span class="code-lang">http</span></div><pre class="code-pre"><code>curl https://your-backend/health
+→ { status, checks:{openrouter}, version, uptime }</code></pre></div><div class="xs muted">Also <code>/health/live</code> &amp; <code>/health/ready</code> for probes.</div></div></div>
+            <div class="card" style="background:var(--bg-subtle)"><div class="card-header"><h3>GET /api/models</h3></div><div class="card-body stack"><div class="code-block"><div class="code-header"><span class="code-lang">http</span></div><pre class="code-pre"><code>curl https://your-backend/api/models
+→ { models: [{id,name}] } // cached 60s</code></pre></div><div class="xs muted">Used for model picker. Filters via <code>OPENROUTER_ALLOWED_MODELS</code>.</div></div></div>
+          </div>
+          <div class="grid-2">
+            <div class="card" style="background:var(--bg-subtle)"><div class="card-header"><h3>POST /api/vision/analyze</h3><span class="badge muted">JSON | multipart</span></div><div class="card-body stack"><div class="code-block"><div class="code-header"><span class="code-lang">json</span></div><pre class="code-pre"><code>{ 
+  "prompt": "Describe this screen",
+  "imageBase64": "data:image/jpeg;base64,…",
+  "model": "anthropic/claude-3.5-sonnet",
+  "stream": true, "autoContinue": true
+}</code></pre></div><div class="code-block"><div class="code-header"><span class="code-lang">curl</span></div><pre class="code-pre"><code>curl -X POST https://your-backend/api/vision/analyze?stream=true \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"...","imageBase64":"data:image/jpeg;base64,..."}'</code></pre></div><div class="xs muted"><strong>SSE</strong> when <code>?stream=true</code> or <code>{stream:true}</code> — events: <code>meta</code> <code>delta</code> <code>done</code> <code>continuation</code> <code>error</code>. Non-stream returns <code>{ answer, metadata, continuation }</code>. Limits: 15 MB JSON, 10 MB image, 16k tokens max.</div></div></div>
+            <div class="card" style="background:var(--bg-subtle)"><div class="card-header"><h3>POST /api/chat</h3></div><div class="card-body stack"><div class="code-block"><div class="code-header"><span class="code-lang">json</span></div><pre class="code-pre"><code>{
+  "messages": [{ "role":"user", "content":"..." }],
+  "model":"openai/gpt-4o", "stream": true,
+  "maxTokens": 4096, "temperature": 0.7
+}</code></pre></div><div class="xs muted">Stream via <code>/api/chat/stream</code> (SSE). Continue truncated via <code>/api/chat/continue</code>.</div></div></div>
+          </div>
+          <div class="card" style="background:var(--bg-subtle)"><div class="card-header"><h3>Security &amp; Limits</h3></div><div class="card-body stack"><ul style="margin:0; padding-left:18px; line-height:1.6" class="xs muted"><li><code>OPENROUTER_API_KEY</code> is server-only — never exposed to clients.</li><li>Helmet, CORS allowlist, rate limits: 80 req/60s baseline, 30 vision, 20 streams.</li><li>Request ID (<code>X-Request-Id</code>), pino logs, 180s timeout for large streaming.</li><li>See <code>shared/src/protocol.ts</code> for the single source of truth.</li></ul></div></div>
+        </div></div>
+      </section>
+    </div>
+
+    <footer class="footer"><span>AI Screen Assistant • Dashboard • No account • <span class="kbd">T</span> theme</span><span class="xs muted">Secure backend • <span id="footerBackend" class="hidden">—</span> attached at deploy</span></footer>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+<script src="./dashboard.js" type="module"></script>
+</body>
+</html>

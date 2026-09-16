@@ -1,0 +1,27 @@
+{
+  "name": "ai-screen-assistant-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Production-ready AI Screen Assistant — Android (Kotlin+Compose+MediaProjection), Windows (Electron+TypeScript), Node.js backend via OpenRouter",
+  "workspaces": [
+    "server",
+    "desktop",
+    "shared"
+  ],
+  "scripts": {
+    "dev:server": "npm --workspace server run dev",
+    "dev:desktop": "npm --workspace desktop run dev",
+    "build": "npm --workspace server run build && npm --workspace desktop run build",
+    "build:server": "npm --workspace server run build",
+    "build:desktop": "npm --workspace desktop run build",
+    "lint": "npm --workspace server run lint && npm --workspace desktop run lint",
+    "test": "npm --workspace server run test && npm --workspace desktop run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yml}\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}

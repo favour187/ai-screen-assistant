@@ -1,0 +1,13 @@
+{
+  "name": "@ai-screen-assistant/shared",
+  "version": "1.0.0",
+  "description": "Shared API protocol — single source of truth",
+  "main": "src/protocol.ts",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

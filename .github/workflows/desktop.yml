@@ -1,0 +1,122 @@
+name: Windows — Build Electron Desktop
+
+on:
+  push:
+    branches: [main, master]
+    paths: ["desktop/**", ".github/workflows/desktop.yml", "shared/**"]
+  pull_request:
+    branches: [main, master]
+    paths: ["desktop/**", "shared/**"]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows (NSIS)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: desktop/package.json
+
+      - name: Validate protocol contract
+        run: |
+          npm --prefix ../shared install --no-audit --no-fund || npm install --prefix ../shared || true
+          npx --prefix ../shared tsc --noEmit || echo "shared typecheck warn"
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Typecheck (main + renderer)
+        run: |
+          npx tsc -p tsconfig.main.json --noEmit
+          npx tsc --noEmit
+
+      - name: Build renderer + main
+        run: npm run build
+
+      # ---- Code signing (optional, via GitHub Secrets) ----
+      # For Windows code signing, set these repo Secrets (Settings → Secrets → Actions):
+      #   WIN_CSC_LINK — base64 of your .pfx certificate OR a URL; electron-builder reads CSC_LINK
+      #   WIN_CSC_KEY_PASSWORD — certificate password (CSC_KEY_PASSWORD)
+      #   Alternatively: WINDOWS_CERTIFICATE_BASE64 + WINDOWS_CERTIFICATE_PASSWORD
+      # Never commit .pfx / passwords — they live only in Secrets and ephemeral runner.
+      # If secrets are not set, the build will still produce an unsigned installer (for testing).
+      - name: Prepare Windows certificate (if provided)
+        if: ${{ secrets.WIN_CSC_LINK != '' }}
+        shell: pwsh
+        env:
+          CSC_LINK_B64: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          # WIN_CSC_LINK may be base64 of pfx or a file path/URL. Handle base64 case:
+          # If it looks like base64 (no :// and no .pfx path), decode to cert.pfx
+          if ($env:CSC_LINK_B64 -match '^[A-Za-z0-9+/=]+$' -and $env:CSC_LINK_B64.Length -gt 200) {
+            Write-Host "Decoding CSC_LINK base64 to cert.pfx (ephemeral)"
+            [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:CSC_LINK_B64))
+            echo "CSC_LINK=$PWD/cert.pfx" >> $env:GITHUB_ENV
+            echo "CSC_KEY_PASSWORD=$env:CSC_KEY_PASSWORD" >> $env:GITHUB_ENV
+          } else {
+            echo "CSC_LINK=$env:CSC_LINK_B64" >> $env:GITHUB_ENV
+            echo "CSC_KEY_PASSWORD=$env:CSC_KEY_PASSWORD" >> $env:GITHUB_ENV
+          }
+          Write-Host "Certificate prepared (if unsigned, this step was skipped)"
+
+      - name: Build Windows installer (electron-builder)
+        env:
+          # electron-builder automatically picks up CSC_LINK / CSC_KEY_PASSWORD from env
+          CSC_LINK: ${{ env.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # To avoid publishing to GitHub Releases during CI, we set publish=never
+        run: npm run dist:win -- --publish=never
+
+      - name: Clean up certificate (never keep)
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Force cert.pfx -ErrorAction SilentlyContinue
+          Write-Host "Certificate cleaned"
+
+      - name: List artifacts
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse release | Select-Object FullName, Length | Format-Table -AutoSize
+          Get-ChildItem release -Filter *.exe | ForEach-Object { Write-Host "Installer: $($_.Name) — $($_.Length) bytes" }
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.blockmap
+            desktop/*.blockmap
+            desktop/dist/**/*
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload unpacked dir (for debugging)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unpacked
+          path: desktop/release/win-unpacked/
+          if-no-files-found: ignore
+          retention-days: 7

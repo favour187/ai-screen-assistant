@@ -1,0 +1,120 @@
+name: CI — Fast Checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol-contract:
+    name: Shared Protocol Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            package.json
+            server/package.json
+            desktop/package.json
+            shared/package.json
+      - name: Typecheck shared protocol
+        run: |
+          npm --workspace shared install --no-audit --no-fund || npm install --prefix shared
+          npx --prefix shared tsc --noEmit
+
+  server:
+    name: Server (Node + Docker smoke)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: server/package.json
+      - name: Install
+        run: npm ci || npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Health smoke (start + curl)
+        env:
+          PORT: 3001
+          OPENROUTER_API_KEY: dummy_ci_key
+        run: |
+          node dist/index.js &
+          pid=$!
+          for i in {1..15}; do
+            if curl -sf http://localhost:3001/health; then echo "health ok"; break; fi
+            sleep 1
+          done
+          curl -sf http://localhost:3001/health | tee /tmp/health.json
+          cat /tmp/health.json | grep -q '"status"'
+          curl -sf http://localhost:3001/ | grep -q "AI Screen Assistant Server"
+          kill $pid || true
+      - name: Docker build smoke
+        run: docker build -f Dockerfile -t ai-assistant-server:ci .
+
+  desktop-lint:
+    name: Desktop (Electron — typecheck + vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: desktop/package.json
+      - name: Install
+        run: npm ci || npm install
+      - name: Typecheck (main + renderer)
+        run: |
+          npx tsc -p tsconfig.main.json --noEmit
+          npx tsc --noEmit
+      - name: Vite build
+        run: npm run build
+
+  android-lint:
+    name: Android (lint + debug)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v3
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew || echo "no gradlew wrapper — using gradle action"
+      - name: Lint (if wrapper exists)
+        run: |
+          if [ -f ./gradlew ]; then ./gradlew lintDebug --stacktrace; else echo "Skip lint — add wrapper"; fi
+      - name: Assemble Debug (unsigned — no secret needed)
+        run: |
+          if [ -f ./gradlew ]; then ./gradlew :app:assembleDebug --stacktrace; else echo "Skip assemble — add wrapper"; fi
+
+# Full signed builds are in separate workflows:
+#   - android.yml (runs on ubuntu, needs ANDROID_* secrets for signed APK/AAB)
+#   - desktop.yml (runs on windows-latest, needs WIN_CSC_* secrets for signed installer)
+# See those files for secrets documentation — never commit keystores/certs.

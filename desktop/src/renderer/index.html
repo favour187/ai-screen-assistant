@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' http://localhost:* https://* ws://localhost:*; font-src 'self' data: https://fonts.gstatic.com;" />
+  <title>AI Screen Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app" aria-label="AI Screen Assistant">
+    <!-- ───────── Sidebar ───────── -->
+    <aside class="sidebar" aria-label="Primary">
+      <div class="sidebar-brand">
+        <div class="brand-mark" aria-hidden="true">◉</div>
+        <div class="brand-text">
+          <h1>Screen Assistant</h1>
+          <p>Premium • Independent</p>
+        </div>
+        <button class="theme-toggle" id="btnTheme" title="Toggle light / dark (T)" aria-label="Toggle theme">◐</button>
+      </div>
+
+      <nav class="nav" aria-label="Sections">
+        <div class="nav-section">
+          <div class="nav-label">Workspace</div>
+          <a class="nav-item active" data-nav="capture" tabindex="0" role="button" aria-current="page">
+            <span class="ico">◧</span> Capture
+            <span class="badge-dot" aria-hidden="true"></span>
+          </a>
+          <a class="nav-item" data-nav="assistant" tabindex="0" role="button">
+            <span class="ico">✦</span> Assistant
+          </a>
+          <a class="nav-item" data-nav="history" id="navHistory" tabindex="0" role="button">
+            <span class="ico">◷</span> History
+            <span id="historyCount" class="badge" style="margin-left:auto; font-size:10px; padding:2px 6px;">0</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">Tools</div>
+          <a class="nav-item" id="btnOverlayToggle" tabindex="0" role="button">
+            <span class="ico">⧉</span> Floating Window
+            <span class="chevron">↗</span>
+          </a>
+          <a class="nav-item" id="btnCreateOverlay" tabindex="0" role="button">
+            <span class="ico">🗔</span> New Overlay
+          </a>
+          <a class="nav-item" id="btnShortcuts" tabindex="0" role="button">
+            <span class="ico">⌘</span> Shortcuts
+            <span class="kbd" style="margin-left:auto;">?</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">System</div>
+          <a class="nav-item" data-nav="settings" id="navSettings" tabindex="0" role="button">
+            <span class="ico">⚙</span> Settings & Diagnostics
+          </a>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="connection-card" role="status" aria-live="polite">
+          <div class="connection-head">
+            <span class="xs" style="font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary)">Connection</span>
+            <span class="pulse" id="pulse" aria-hidden="true"></span>
+          </div>
+          <div id="backendStatus" class="badge" style="width:fit-content">Checking…</div>
+          <!-- backendUrlLabel & apiBaseLabel are env-driven — kept hidden for technical users, not shown by default -->
+          <div id="backendUrlLabel" class="hidden"></div>
+          <span id="apiBaseLabel" class="hidden">http://localhost:3000</span>
+          <div class="row" style="gap:6px; flex-wrap:wrap; margin-top:8px">
+            <button id="btnHealth" class="btn btn-sm">Health</button>
+            <span id="versionBadge" class="badge muted" style="margin-left:auto">v1.0.0</span>
+          </div>
+          <p class="hint small" style="margin:6px 0 0; line-height:1.4">Backend attached via environment at build time.</p>
+        </div>
+
+        <div class="xs muted" style="display:flex; align-items:center; gap:6px; line-height:1.4">
+          <span class="kbd">↵</span> Analyze
+          <span class="kbd">Esc</span> Stop
+          <span class="kbd">O</span> Overlay
+        </div>
+      </div>
+    </aside>
+
+    <!-- ───────── Main ───────── -->
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div>
+            <h2>AI Workspace</h2>
+            <p>OS-authorized capture → secure backend → live streaming • No injection</p>
+          </div>
+          <span id="captureLiveBadge" class="badge accent hidden" style="margin-left:12px"><span class="badge-dot"></span> LIVE</span>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="row" style="gap:8px">
+            <label class="sr-only" for="modelSelect">Model</label>
+            <select id="modelSelect" class="select" style="min-width:210px; height:36px; padding:0 10px" aria-label="Model">
+              <option value="">Default (server)</option>
+            </select>
+            <span id="overlayStatus" class="badge muted">Overlay: hidden</span>
+            <span id="streamStatus" class="badge info hidden"></span>
+          </div>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- Workspace grid -->
+        <div class="workspace">
+          <!-- Left: Capture -->
+          <div class="capture-stack">
+            <section class="card" aria-labelledby="captureTitle">
+              <div class="card-header">
+                <h3 id="captureTitle">Capture — OS-authorized</h3>
+                <span class="badge accent">desktopCapturer</span>
+              </div>
+              <div class="card-body stack">
+                <p class="hint">Pick a window or entire screen. The OS shows a system picker — <strong>you</strong> choose, not the app. Pixels come from the compositor. The viewed app needs no integration.</p>
+
+                <div class="row" style="flex-wrap:wrap">
+                  <button id="btnPickSource" class="btn btn-primary">▣ Choose Window / Screen</button>
+                  <button id="btnCapture" class="btn" disabled>◎ Start Continuous</button>
+                  <button id="btnStop" class="btn btn-ghost" disabled>■ Stop</button>
+                  <button id="btnPause" class="btn btn-sm" disabled>⏸ Pause</button>
+                </div>
+
+                <div id="sourceGrid" class="source-grid" role="listbox" aria-label="Available windows and screens"></div>
+
+                <div class="preview-wrap">
+                  <div class="preview-toolbar">
+                    <span id="selectedSourceLabel" class="xs muted">No source selected</span>
+                    <span id="captureInfo" class="xs subtle"></span>
+                  </div>
+
+                  <div class="preview-box" id="previewBox">
+                    <img id="previewImg" alt="Screenshot preview" style="display:none" />
+                    <div id="previewPlaceholder" class="placeholder">
+                      <div class="placeholder-icon">🖥️</div>
+                      <div>
+                        <h4 style="margin:0 0 4px">No frame yet</h4>
+                        <p class="hint small">Select a source and Start Continuous. Duplicates are skipped automatically. Preview stays independent from the captured app.</p>
+                      </div>
+                      <div class="row" style="justify-content:center; gap:6px; flex-wrap:wrap">
+                        <span class="kbd">Drag</span>
+                        <span class="xs muted">overlay to reposition</span>
+                      </div>
+                    </div>
+                    <video id="hiddenVideo" autoplay muted playsinline style="display:none"></video>
+                    <canvas id="hiddenCanvas" style="display:none"></canvas>
+                  </div>
+
+                  <div class="stats" role="status" aria-live="polite">
+                    <span class="stat"><span class="dot" style="background:var(--success)"></span> <strong id="fpsLabel">—</strong> fps</span>
+                    <span class="stat">diff <strong id="diffLabel">—</strong></span>
+                    <span class="stat">skipped <strong id="skippedLabel">0</strong></span>
+                    <span class="stat">queue <strong id="queueLabel">0/2</strong></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Advanced (hidden by default) -->
+            <details class="card" style="padding:0; overflow:hidden">
+              <summary style="list-style:none; padding:12px 16px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:12px">
+                <span style="font-size:12px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--text-secondary)">Capture options (advanced)</span>
+                <span class="badge muted" style="font-size:10px;">defaults work</span>
+              </summary>
+              <div style="padding:0 16px 16px; border-top:1px solid var(--border)">
+                <div class="settings-grid" style="margin-top:12px">
+                  <label class="field">
+                    <span class="field-label">Interval <small id="intervalVal" style="color:var(--accent); background:var(--accent-soft); padding:1px 6px; border-radius:999px">1500ms</small></span>
+                    <input id="intervalInput" class="range" type="range" min="500" max="5000" step="250" value="1500" />
+                    <span class="field-hint">Checked only — skipped if unchanged.</span>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Scale <small id="scaleVal" style="color:var(--accent); background:var(--accent-soft); padding:1px 6px; border-radius:999px">60%</small></span>
+                    <input id="scaleInput" class="range" type="range" min="30" max="100" step="5" value="60" />
+                    <span class="field-hint">Defaults to 60% for balance.</span>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Quality <small id="qualityVal" style="color:var(--accent); background:var(--accent-soft); padding:1px 6px; border-radius:999px">75</small></span>
+                    <input id="qualityInput" class="range" type="range" min="40" max="95" step="5" value="75" />
+                    <span class="field-hint">Auto-capped &lt;1.8MB.</span>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Change threshold <small id="diffVal" style="color:var(--accent); background:var(--accent-soft); padding:1px 6px; border-radius:999px">3.0%</small></span>
+                    <input id="diffInput" class="range" type="range" min="0.5" max="20" step="0.5" value="3" />
+                    <span class="field-hint">Skip if below.</span>
+                  </label>
+                </div>
+                <div class="toggles" style="margin-top:14px; gap:14px; flex-wrap:wrap">
+                  <label class="toggle"><input type="checkbox" id="chkFrameDiff" checked /><span class="toggle-track"></span><span class="toggle-label">Frame-change detection</span></label>
+                  <label class="toggle"><input type="checkbox" id="chkAuto" /><span class="toggle-track"></span><span class="toggle-label">Auto-analyze</span></label>
+                  <label class="toggle"><input type="checkbox" id="chkOverlayTop" checked /><span class="toggle-track"></span><span class="toggle-label">Overlay always-on-top</span></label>
+                  <label class="toggle"><input type="checkbox" id="chkStream" checked /><span class="toggle-track"></span><span class="toggle-label">Stream</span></label>
+                </div>
+                <p class="hint small" style="margin-top:10px">All defaults are production-tested — just Start and Analyze.</p>
+              </div>
+            </details>
+          </div>
+
+          <!-- Right: Assistant -->
+          <div class="assistant-stack">
+            <!-- Prompt — backend comes from environment -->
+            <section class="card">
+              <div class="card-header">
+                <h3>Assistant</h3>
+                <span class="xs muted">Secure • streaming by default</span>
+              </div>
+              <div class="card-body stack">
+                <!-- backend URL is baked via VITE_API_BASE_URL env at build time; no user input -->
+                <input id="backendInput" type="hidden" />
+                <div class="field">
+                  <span class="field-label">What to ask about this screen</span>
+                  <textarea id="promptInput" class="textarea" rows="3" placeholder="e.g., Summarize what's on this screen and suggest next steps..." spellcheck="true">Describe what's on this screen and help the user concisely.</textarea>
+                  <span class="field-hint">Tip: be specific — “extract the table as JSON” or “write code for this UI”.</span>
+                </div>
+
+                <div class="row" style="gap:8px; flex-wrap:wrap">
+                  <button id="btnAnalyze" class="btn btn-primary" disabled>✦ Analyze</button>
+                  <button id="btnCaptureNow" class="btn btn-outline" disabled>📸 Capture now</button>
+                  <button id="btnClear" class="btn btn-ghost">Clear</button>
+                  <div class="spacer"></div>
+                  <span id="responseMeta" class="xs muted"></span>
+                </div>
+              </div>
+            </section>
+
+            <!-- Response — live streaming, markdown, code -->
+            <section class="response-shell" aria-live="polite" aria-label="Assistant response">
+              <div class="response-toolbar">
+                <div class="response-toolbar-left">
+                  <span class="xs" style="font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--text-secondary)">Response</span>
+                  <span id="liveDot" class="badge accent hidden"><span class="badge-dot"></span> Analyzing</span>
+                </div>
+                <div class="response-toolbar-right">
+                  <button class="btn btn-sm btn-ghost" id="btnCopy" title="Copy response (Ctrl/Cmd+C)">Copy</button>
+                  <button class="btn btn-sm btn-ghost" id="btnSave" title="Save as .md">Save</button>
+                  <button class="btn btn-sm btn-ghost" id="btnRegenerate" title="Regenerate (R)">↻ Regenerate</button>
+                  <button class="btn btn-sm" id="btnContinue" title="Continue truncated (C)" style="display:none">▶ Continue</button>
+                  <button class="btn btn-sm btn-ghost" id="btnClearResponse" title="Clear">✕</button>
+                </div>
+              </div>
+
+              <div id="responseBox" class="response-content-wrap">
+                <div id="responsePlaceholder" class="response-placeholder">
+                  <div class="icon">✦</div>
+                  <div>
+                    <h4 style="margin:0 0 6px; font-size:14px;">Ready to analyze</h4>
+                    <p class="hint small" style="max-width:360px; margin:0 auto">Capture a frame, write a prompt, and press Analyze. The answer streams live — code is highlighted, large outputs are virtualized and mirrored to the always-on-top overlay.</p>
+                  </div>
+                  <div class="row" style="justify-content:center; gap:6px; margin-top:4px">
+                    <span class="kbd">↵</span><span class="xs muted">Analyze</span>
+                    <span class="kbd">O</span><span class="xs muted">Overlay</span>
+                    <span class="kbd">?</span><span class="xs muted">Shortcuts</span>
+                  </div>
+                </div>
+
+                <!-- Dynamic blocks injected here -->
+                <div id="responseContent" class="md hidden"></div>
+
+                <!-- Analyzing shimmer -->
+                <div id="analyzingState" class="hidden" style="padding:12px 0">
+                  <div class="analyzing">
+                    <span class="analyzing-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+                    Analyzing — streaming tokens…
+                  </div>
+                  <div class="loading-bar" style="margin-top:10px; max-width:320px"></div>
+                  <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+                    <div class="skeleton" style="width:68%; height:12px"></div>
+                    <div class="skeleton" style="width:52%; height:12px"></div>
+                    <div class="skeleton" style="width:74%; height:12px"></div>
+                  </div>
+                </div>
+
+                <!-- Error / empty states are injected via JS -->
+              </div>
+
+              <div class="card-footer xs muted" style="gap:8px; flex-wrap:wrap">
+                <span id="responseStats" class="xs subtle">No response yet • History saved locally</span>
+                <span class="spacer"></span>
+                <span class="xs subtle">Enter: Analyze • Esc: Stop • O: Overlay • ?: Help</span>
+              </div>
+            </section>
+
+            <!-- History — collapsible -->
+            <section class="card" id="historyCard">
+              <div class="card-header" style="cursor:pointer" onclick="document.getElementById('historyList').classList.toggle('hidden')">
+                <h3>History — local</h3>
+                <span class="xs muted">Preserved across restarts • tap to restore</span>
+              </div>
+              <div class="card-body">
+                <div id="historyList" class="history-list"></div>
+                <div id="historyEmpty" class="empty" style="margin-top:8px">
+                  <div class="empty-icon">◷</div>
+                  <div>
+                    <h4 style="margin:0; font-size:13px">No history yet</h4>
+                    <p class="hint small">Your last 20 responses are saved locally (never uploaded). They appear here after each analyze.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <details class="card" style="padding:0; overflow:hidden">
+              <summary style="list-style:none; padding:14px 16px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:12px">
+                <span style="font-size:12px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--text-secondary)">How isolation & diagnostics work</span>
+                <span class="badge muted">?</span>
+              </summary>
+              <div style="padding:0 16px 16px; border-top:1px solid var(--border)">
+                <ul style="margin:12px 0 0 16px; color:var(--text-secondary); font-size:12px; line-height:1.6">
+                  <li><strong>Capture:</strong> <code>desktopCapturer.getSources()</code> → you pick → <code>getUserMedia({chromeMediaSource:'desktop'})</code> → canvas at scale → JPEG. OS compositor only.</li>
+                  <li><strong>No injection:</strong> Independent Electron process, no DLL/hooks/extensions in viewed app.</li>
+                  <li><strong>Efficiency:</strong> 32×32 luma diff, threshold 0.5–20%, queue 1–5, &lt;1.8MB cap.</li>
+                  <li><strong>Diagnostics:</strong> Health checks every 30s, <code> /health</code> mirrored to overlay.</li>
+                </ul>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <span>AI Screen Assistant • <span class="muted">Windows • MediaProjection parity • SSE streaming • Keep capture independent</span></span>
+        <span class="xs muted">Press <span class="kbd">?</span> for shortcuts • <span class="kbd">T</span> theme</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Toasts & Dialogs -->
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
+
+  <dialog id="shortcutsDialog" class="dialog-backdrop hidden" style="border:0; background:transparent; padding:0; max-width:none; width:100%; height:100%">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+      <div class="dialog-head">
+        <div id="shortcutsTitle" class="dialog-title">Keyboard Shortcuts</div>
+        <div class="dialog-desc">Speed up capture and streaming. Shortcuts work when the main window is focused.</div>
+      </div>
+      <div class="dialog-body">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; font-size:13px">
+          <div class="col"><span class="kbd">↵ Enter</span><span class="muted"> Analyze screenshot</span></div>
+          <div class="col"><span class="kbd">Esc</span><span class="muted"> Stop stream / capture</span></div>
+          <div class="col"><span class="kbd">O</span><span class="muted"> Toggle overlay</span></div>
+          <div class="col"><span class="kbd">R</span><span class="muted"> Regenerate last</span></div>
+          <div class="col"><span class="kbd">C</span><span class="muted"> Continue truncated</span></div>
+          <div class="col"><span class="kbd">L</span><span class="muted"> Copy last response</span></div>
+          <div class="col"><span class="kbd">S</span><span class="muted"> Save response</span></div>
+          <div class="col"><span class="kbd">T</span><span class="muted"> Toggle theme</span></div>
+          <div class="col"><span class="kbd">?</span><span class="muted"> Toggle this panel</span></div>
+          <div class="col"><span class="kbd">Ctrl/Cmd + K</span><span class="muted"> Pick source</span></div>
+        </div>
+        <hr class="divider" />
+        <p class="hint small">Multiple displays: the picker lists “Screen 1”, “Screen 2”, etc. Reconnect: if stream drops, the error toast offers Retry — we cancel the stream and re-POST.</p>
+      </div>
+      <div class="dialog-foot">
+        <button class="btn btn-primary" onclick="document.getElementById('shortcutsDialog').classList.add('hidden')">Got it</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./renderer.ts"></script>
+</body>
+</html>

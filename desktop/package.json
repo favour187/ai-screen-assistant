@@ -1,0 +1,70 @@
+{
+  "name": "@ai-screen-assistant/desktop",
+  "version": "1.0.0",
+  "description": "AI Screen Assistant — Windows Desktop (Electron + TypeScript) — OS-authorized capture, movable overlay",
+  "private": true,
+  "main": "dist/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
+    "dev:renderer": "vite --config vite.config.ts",
+    "dev:main": "npm run build:main -- --watch & wait-on http://localhost:5173 && electron .",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "start": "electron .",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "typecheck:all": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --publish=never",
+    "dist:win": "electron-builder --win --publish=never",
+    "test": "echo \"no tests\""
+  },
+  "dependencies": {
+    "@ai-screen-assistant/shared": "file:../shared",
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "concurrently": "^9.0.1",
+    "electron": "^32.2.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.aiscreenassistant.desktop",
+    "productName": "AI Screen Assistant",
+    "copyright": "© AI Screen Assistant",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "publisherName": "AI Screen Assistant",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "publish": null
+  }
+}

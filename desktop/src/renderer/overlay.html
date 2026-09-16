@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:* https://*;" />
+  <title>Assistant — Floating</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./overlay.css" />
+</head>
+<body>
+  <div id="overlayApp" role="dialog" aria-label="Floating assistant result">
+    <header id="dragHandle" class="overlay-header">
+      <div class="overlay-title">
+        <span class="dot" aria-hidden="true"></span>
+        <span style="font-weight:700; letter-spacing:-.02em">AI Assistant</span>
+        <span id="overlayStatus" class="status">idle</span>
+      </div>
+      <div class="overlay-actions">
+        <button id="btnCopyOverlay" class="icon-btn" title="Copy response (L)">⧉</button>
+        <button id="btnPin" class="icon-btn" title="Toggle always on top">📌</button>
+        <button id="btnMinimize" class="icon-btn" title="Minimize">—</button>
+        <button id="btnClose" class="icon-btn" title="Close (Esc)">✕</button>
+      </div>
+    </header>
+
+    <div id="overlayContent" class="overlay-content">
+      <div id="overlayPlaceholder" class="overlay-placeholder">
+        <div class="placeholder-icon">✦</div>
+        <h4>Floating result</h4>
+        <p>Streamed answer appears here while you work in other apps. Drag the header to move, drag edges to resize.</p>
+        <div class="row" style="justify-content:center; gap:6px; flex-wrap:wrap; margin-top:8px">
+          <span class="badge accent"><span class="badge-dot"></span> Always on top</span>
+          <span class="badge muted">Independent window</span>
+        </div>
+      </div>
+      <div id="overlayText" class="overlay-text md" style="display:none"></div>
+      <div id="overlayMeta" class="meta"></div>
+    </div>
+
+    <footer class="overlay-footer">
+      <span id="overlayBackend" class="meta small subtle">backend: —</span>
+      <span class="row" style="gap:6px">
+        <button id="btnExpand" class="btn btn-sm btn-ghost">Expand</button>
+        <span class="xs muted">Movable • Resizable • Independent</span>
+      </span>
+    </footer>
+  </div>
+  <script type="module" src="./overlay.ts"></script>
+</body>
+</html>

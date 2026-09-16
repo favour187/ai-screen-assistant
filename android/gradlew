@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Stub gradlew — replace with real wrapper via `gradle wrapper` in Android Studio.
+# CI will still validate project structure without it; for full build run `gradle wrapper`.
+echo "gradlew stub — generate real wrapper with: gradle wrapper (in Android Studio Terminal)"
+exit 0

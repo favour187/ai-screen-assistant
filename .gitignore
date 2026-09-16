@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Builds
+dist/
+build/
+out/
+.next/
+server/dist/
+desktop/dist/
+desktop/out/
+desktop/release/
+
+# Env
+.env
+.env.local
+.env.*.local
+server/.env
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+# Android — signing (never commit — use GitHub Secrets)
+android/app/release.keystore
+android/app/signing.properties
+android/keystore.properties
+*.keystore
+*.jks
+*.p12
+*.pfx
+cert.pfx
+desktop/cert.pfx
+
+# Electron
+*.exe
+*.dmg
+*.AppImage
+*.snap
+*.deb
+# Electron — release (built via CI)
+desktop/release/
+desktop/dist/
+
+# Misc
+coverage/
+.nyc_output/
+.cache/
+tmp/
+.npm/
+.cache/
