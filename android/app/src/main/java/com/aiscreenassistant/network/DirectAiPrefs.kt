@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.directDataStore by preferencesDataStore(name = "direct_ai")
@@ -32,7 +33,7 @@ object DirectAiPrefs {
 
     // Sync getters for service (blocking not ideal but ok for immediate)
     suspend fun getSnapshot(context: Context): DirectConfig {
-        val data = kotlinx.coroutines.flow.first(context.directDataStore.data)
+        val data = context.directDataStore.data.first()
         return DirectConfig(
             baseUrl = data[KEY_BASE_URL] ?: DEFAULT_BASE_URL,
             apiKey = data[KEY_API_KEY] ?: "",
