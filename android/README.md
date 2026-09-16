@@ -77,3 +77,5 @@ Mirrors `shared/src/protocol.ts` (Kotlin `protocol/Protocol.kt`): `POST /api/vis
 2. Switch apps → capture continues (notification + overlay).
 3. Rotate device → preview updates, VirtualDisplay recreates (logcat `CaptureEngine VirtualDisplay created`).
 4. Lock screen or revoke → `errorFlow` shows “MediaProjection stopped — re-authorize”.
+
+<!-- trigger ci Wed Sep 16 00:41:01 UTC 2026 -->
