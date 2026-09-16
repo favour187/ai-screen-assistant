@@ -21,6 +21,14 @@ services:
         value: https://openrouter.ai/api/v1
       - key: OPENROUTER_MODEL
         value: anthropic/claude-3.5-sonnet
+      # Alternative: Featherless (OpenAI-compatible) — if OPENROUTER_API_KEY not set, set FEATHERLESS_API_KEY instead
+      # The server auto-detects: baseUrl from FEATHERLESS_BASE_URL or OPENROUTER_BASE_URL, key from FEATHERLESS_API_KEY
+      - key: FEATHERLESS_API_KEY
+        sync: false
+      - key: FEATHERLESS_BASE_URL
+        value: https://api.featherless.ai/v1
+      - key: FEATHERLESS_MODEL
+        value: meta-llama/Meta-Llama-3.1-8B-Instruct
       - key: OPENROUTER_APP_URL
         value: https://github.com/your-org/ai-screen-assistant
       - key: OPENROUTER_APP_NAME

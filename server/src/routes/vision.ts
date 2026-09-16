@@ -45,7 +45,7 @@ function toDataUrl(mime: string, base64: string) {
 
 function ensureConfigured(res: any) {
   if (!config.openrouter.apiKey) {
-    res.status(503).json({ error: 'OpenRouter not configured', code: 'NOT_CONFIGURED' });
+    res.status(503).json({ error: 'AI not configured — set OPENROUTER_API_KEY or FEATHERLESS_API_KEY on Render', code: 'NOT_CONFIGURED' });
     return false;
   }
   return true;

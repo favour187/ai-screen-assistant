@@ -41,12 +41,29 @@ class MediaProjectionHelper(private val context: Context) {
 
     fun getDisplayInfo(): DisplayInfo {
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getMetrics(metrics)
-        @Suppress("DEPRECATION")
-        val rotation = wm.defaultDisplay.rotation
-        return DisplayInfo(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi, rotation)
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val bounds = wm.currentWindowMetrics.bounds
+                val density = context.resources.displayMetrics.densityDpi
+                @Suppress("DEPRECATION")
+                val rotation = wm.defaultDisplay.rotation
+                val w = if (bounds.width() > 0) bounds.width() else context.resources.displayMetrics.widthPixels
+                val h = if (bounds.height() > 0) bounds.height() else context.resources.displayMetrics.heightPixels
+                DisplayInfo(w, h, density, rotation)
+            } else {
+                val metrics = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                wm.defaultDisplay.getMetrics(metrics)
+                @Suppress("DEPRECATION")
+                val rotation = wm.defaultDisplay.rotation
+                DisplayInfo(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi, rotation)
+            }
+        } catch (e: Exception) {
+            val dm = context.resources.displayMetrics
+            @Suppress("DEPRECATION")
+            val rot = wm.defaultDisplay.rotation
+            DisplayInfo(dm.widthPixels, dm.heightPixels, dm.densityDpi, rot)
+        }
     }
 
     fun getScaledInfo(scale: Float): DisplayInfo {

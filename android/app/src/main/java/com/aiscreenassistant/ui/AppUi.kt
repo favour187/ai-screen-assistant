@@ -255,6 +255,10 @@ fun AppUi(
     val prompt by viewModel.prompt.collectAsState()
     val model by viewModel.model.collectAsState()
     val config by viewModel.config.collectAsState()
+    val directEnabled by viewModel.directEnabled.collectAsState()
+    val directBaseUrl by viewModel.directBaseUrl.collectAsState()
+    val directApiKey by viewModel.directApiKey.collectAsState()
+    val directModel by viewModel.directModel.collectAsState()
     val isCapturing by viewModel.isCapturing.collectAsState()
     val isPaused by viewModel.isPaused.collectAsState()
     val preview by viewModel.previewBitmap.collectAsState()
@@ -523,11 +527,67 @@ fun AppUi(
                             OutlinedButton(onClick = { viewModel.checkHealth() }) { Text("Check health") }
                             Text(health.ifBlank { localHealth }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterVertically))
                         }
+                        // Direct AI fallback — bypasses backend when 404, works immediately without Render
+                        HorizontalDivider()
+                        SectionHeader("Direct AI fallback", subtitle = "Use Featherless/OpenRouter directly when backend is down (no redeploy needed)")
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Switch(checked = directEnabled, onCheckedChange = { viewModel.setDirectEnabled(context, it) })
+                            Text("Enable direct AI fallback", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            if (directEnabled) StatusBadge("active", "ok") else StatusBadge("off", "neutral")
+                        }
+                        Text("When enabled and backend returns 404/HTML, app automatically calls AI directly. Enter your Featherless or OpenRouter key below (stored locally, never committed).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedTextField(
+                            value = directBaseUrl,
+                            onValueChange = { viewModel.setDirectBaseUrl(context, it) },
+                            label = { Text("Direct Base URL") },
+                            placeholder = { Text("https://api.featherless.ai/v1") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedTextField(
+                            value = directApiKey,
+                            onValueChange = { viewModel.setDirectApiKey(context, it) },
+                            label = { Text("Direct API Key (Featherless / OpenRouter)") },
+                            placeholder = { Text("paste key — stored locally only") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedTextField(
+                            value = directModel,
+                            onValueChange = { viewModel.setDirectModel(context, it) },
+                            label = { Text("Direct Model") },
+                            placeholder = { Text("Qwen/Qwen2-VL-72B-Instruct or anthropic/claude-3.5-sonnet") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusBadge(if (directApiKey.isBlank()) "key missing" else "key set", if (directApiKey.isBlank()) "warn" else "ok")
+                            StatusBadge(directModel.take(28), "accent")
+                            if (directEnabled && directApiKey.isNotBlank()) StatusBadge("fallback ready", "ok")
+                        }
                         // Model is auto (server default) — advanced users may override in code/build env
                         HorizontalDivider()
                         SectionHeader("Diagnostics")
                         Text("Capture in background: ${if (config.captureInBackground) "yes — foreground service" else "no"} • Max memory ${config.maxMemoryMB} MB • Skipped ${skipped} • Queue ${queueSize}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Backend health: ${health.ifBlank{ localHealth }} • Model: ${model.ifBlank{ "default" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Backend health: ${health.ifBlank{ localHealth }} • Model: ${model.ifBlank{ "default" }}${if (directEnabled) " · Direct: ${directModel.take(12)}" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if ((health + localHealth).contains("backend not deployed", true) || (health + localHealth).contains("404", true)) {
+                            Surface(shape = RoundedCornerShape(8.dp), color = if (directEnabled && directApiKey.isNotBlank()) Tokens.Success.copy(alpha=.12f) else Tokens.Error.copy(alpha=.12f), border = androidx.compose.foundation.BorderStroke(1.dp, if (directEnabled && directApiKey.isNotBlank()) Tokens.Success.copy(alpha=.24f) else Tokens.Error.copy(alpha=.24f))) {
+                                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(if (directEnabled && directApiKey.isNotBlank()) Icons.Filled.CheckCircle else Icons.Filled.Warning, null, tint = if (directEnabled && directApiKey.isNotBlank()) Tokens.Success else Tokens.Error, modifier = Modifier.size(16.dp))
+                                    Text(
+                                        if (directEnabled && directApiKey.isNotBlank()) "Backend 404 — Direct AI enabled (${directModel.take(20)}), will fallback automatically ✅"
+                                        else "Backend 404 — Enable Direct AI fallback above for immediate use, or redeploy server on Render",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Done") } }

@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import com.aiscreenassistant.capture.*
 import com.aiscreenassistant.network.AnalysisRepository
 import com.aiscreenassistant.network.ApiClient
+import com.aiscreenassistant.network.DirectAiPrefs
 import com.aiscreenassistant.overlay.FloatingOverlayManager
 import com.aiscreenassistant.util.MemoryManager
 import kotlinx.coroutines.*
@@ -103,7 +104,27 @@ class ScreenCaptureService : Service() {
         }
         analysisRepo = AnalysisRepository(
             apiClientProvider = { ApiClient(backendUrlFlow.value.trimEnd('/')) },
-            scope = serviceScope
+            scope = serviceScope,
+            directConfigProvider = {
+                // Read from DataStore synchronously via runBlocking fallback — but we are in coroutine, so use first()
+                // For service, we need to block briefly; use kotlinx.coroutines.runBlocking with timeout
+                try {
+                    kotlinx.coroutines.runBlocking {
+                        // with timeout to avoid hang
+                        kotlinx.coroutines.withTimeout(800) {
+                            DirectAiPrefs.getSnapshot(this@ScreenCaptureService)
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Fallback to defaults (disabled)
+                    DirectAiPrefs.DirectConfig(DirectAiPrefs.DEFAULT_BASE_URL, "", DirectAiPrefs.DEFAULT_MODEL_FEATHERLESS, false)
+                }
+            },
+            onFallbackUsed = {
+                serviceScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                    healthFlow.value = "Direct AI fallback active"
+                }
+            }
         )
         createChannel()
         registerDisplayListener()
@@ -185,13 +206,24 @@ class ScreenCaptureService : Service() {
     fun getConfig(): CaptureConfig = currentConfig
 
     fun toggleOverlay() {
-        if (overlayManager?.isVisible() == true) overlayManager?.hide() else {
-            if (overlayManager?.canShow() == true) {
-                overlayManager?.show()
-                overlayManager?.updateContent(streamingTextFlow.value, isStreamingFlow.value)
+        try {
+            if (overlayManager?.isVisible() == true) {
+                Log.i(TAG, "hiding overlay")
+                overlayManager?.hide()
             } else {
-                errorFlow.value = "Overlay permission needed — grant in Settings"
+                if (overlayManager?.canShow() == true) {
+                    Log.i(TAG, "showing overlay")
+                    overlayManager?.show()
+                    overlayManager?.updateContent(streamingTextFlow.value, isStreamingFlow.value)
+                    overlayManager?.backendStatus = healthFlow.value
+                } else {
+                    Log.w(TAG, "overlay permission not granted")
+                    errorFlow.value = "Overlay permission needed — grant in Settings → Display over other apps"
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "toggleOverlay failed", e)
+            errorFlow.value = "Overlay failed: ${e.message}"
         }
     }
 
@@ -204,9 +236,26 @@ class ScreenCaptureService : Service() {
             stopCaptureInternal()
         }
         try {
+            // Android 14+ (API 34, targetSdk 34) enforces: foreground service of type mediaProjection
+            // must be started BEFORE calling getMediaProjection / createVirtualDisplay.
+            // Previous order (getMediaProjection -> startForeground) threw:
+            // "Media projections require a foreground service of type ...MEDIA_PROJECTION"
+            // Fixed by starting foreground immediately.
+            try {
+                startForegroundWithNotification("Capture starting…")
+            } catch (e: Exception) {
+                Log.e(TAG, "startForeground failed (maybe POST_NOTIFICATIONS denied)", e)
+                // Still try - system may allow without notification on some OEMs, but обычно requires.
+                // Re-throw as user-visible error
+                errorFlow.value = "Failed to start foreground — allow notifications for capture"
+                return
+            }
+
             mediaProjection = mediaProjectionManager?.getMediaProjection(resultCode, data)
             if (mediaProjection == null) {
                 errorFlow.value = "Failed to obtain MediaProjection"
+                // Clean foreground we just started
+                try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
                 return
             }
             // Register stop callback
@@ -219,8 +268,6 @@ class ScreenCaptureService : Service() {
                     }
                 }
             }, Handler(Looper.getMainLooper()))
-
-            startForegroundWithNotification("Capture starting…")
 
             captureEngine = CaptureEngine(
                 context = this,
@@ -296,6 +343,15 @@ class ScreenCaptureService : Service() {
             startForegroundWithNotification(buildNotificationText())
             checkHealth()
             Log.i(TAG, "capture started ${currentConfig.intervalMs}ms scale ${currentConfig.scaleFactor}")
+            // Auto-show overlay if permission already granted — user expects floating results when switching apps
+            // Delay slightly so WindowManager is ready, must run on Main for WindowManager
+            serviceScope.launch(Dispatchers.Main) {
+                delay(800)
+                if (overlayManager?.canShow() == true && overlayManager?.isVisible() == false) {
+                    Log.i(TAG, "auto-showing overlay (permission granted)")
+                    try { overlayManager?.show() } catch (e: Exception) { Log.w(TAG, "auto overlay show failed", e) }
+                }
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "startCapture failed", e)
@@ -339,14 +395,43 @@ class ScreenCaptureService : Service() {
         if (!isCapturingFlow.value || !isPaused) return
         isPaused = false
         isPausedFlow.value = false
-        // Recreate engine
+        // Recreate engine with fresh callbacks (avoid recycled bitmap issue, ensure preview)
+        val oldReady = captureEngine?.onFrameReady
+        val oldPreview = captureEngine?.onPreviewFrame
         mediaProjection?.let { mp ->
             captureEngine = CaptureEngine(this, mp, currentConfig, projectionHelper!!, serviceScope).apply {
-                onFrameReady = captureEngine?.onFrameReady
-                onPreviewFrame = captureEngine?.onPreviewFrame
+                onFrameReady = oldReady ?: { jpeg, w, h, diff ->
+                    queueSizeFlow.value = this@apply.queueSize.value
+                    serviceScope.launch {
+                        if (currentConfig.autoAnalyze) {
+                            analysisRepo?.analyze(jpeg, currentPrompt, currentModel,
+                                onDone = { result ->
+                                    streamingTextFlow.value = result
+                                    overlayManager?.updateContent(result, false)
+                                    queueSizeFlow.value = this@apply.queueSize.value
+                                    fpsFlow.value = this@apply.fps.value
+                                }
+                            )
+                            delay(50)
+                            this@apply.markQueueConsumed()
+                        } else {
+                            this@apply.markQueueConsumed()
+                        }
+                    }
+                }
+                onPreviewFrame = oldPreview ?: { bmp ->
+                    previewBitmapFlow.value = bmp
+                }
+                // Ensure preview doesn't recycle
+                if (onPreviewFrame == null) {
+                    onPreviewFrame = { bmp -> previewBitmapFlow.value = bmp }
+                }
             }
-            // Re-collect?
             serviceScope.launch { captureEngine!!.fps.collect { fpsFlow.value = it } }
+            serviceScope.launch { captureEngine!!.lastDiffPercent.collect { lastDiffFlow.value = it } }
+            serviceScope.launch { captureEngine!!.skippedFrames.collect { skippedFlow.value = it } }
+            serviceScope.launch { captureEngine!!.queueSize.collect { queueSizeFlow.value = it } }
+            serviceScope.launch { captureEngine!!.lastError.collect { errorFlow.value = it } }
             captureEngine?.start()
             startForegroundWithNotification(buildNotificationText())
         }
@@ -387,11 +472,21 @@ class ScreenCaptureService : Service() {
     private fun checkHealth() {
         serviceScope.launch {
             try {
-                val client = ApiClient(backendUrlFlow.value)
+                val client = ApiClient(backendUrlFlow.value.trimEnd('/'))
                 val h = client.health()
                 healthFlow.value = "${h.status} · OpenRouter:${h.checks.openrouter}"
             } catch (e: Exception) {
-                healthFlow.value = "unreachable: ${e.message?.take(40)}"
+                val msg = e.message ?: "unknown"
+                // Friendly mapping — hide raw HTML
+                val friendly = when {
+                    msg.contains("<!DOCTYPE", ignoreCase = true) || msg.contains("<html", ignoreCase = true) -> "backend not deployed (404) — redeploy server on Render (push to main triggers autoDeploy) or check BACKEND_URL"
+                    msg.contains("404", ignoreCase = true) && msg.contains("health", ignoreCase = true) -> "backend 404 — is BACKEND_URL correct? ${backendUrlFlow.value} — check Render health at /health"
+                    msg.contains("503", ignoreCase = true) && msg.contains("NOT_CONFIGURED", ignoreCase = true) -> "AI not configured — set OPENROUTER_API_KEY or FEATHERLESS_API_KEY on Render"
+                    msg.contains("Unable to resolve host", ignoreCase = true) -> "no network / DNS — check device connection"
+                    else -> msg.take(120)
+                }
+                healthFlow.value = "unreachable: $friendly"
+                Log.w(TAG, "health check failed: $msg")
             }
         }
     }
@@ -465,15 +560,19 @@ class ScreenCaptureService : Service() {
         dm.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
     }
 
-    // Memory trim callback — throttle quality if system low
+    // Memory trim callback — throttle quality if system low (less aggressive)
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        // Only throttle on critical, not just RUNNING_LOW; and keep quality higher
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
             Log.w(TAG, "onTrimMemory $level — low memory, throttling")
-            if (currentConfig.jpegQuality > 55) {
-                updateConfig(currentConfig.copy(jpegQuality = 55))
-                errorFlow.value = "Low memory — quality throttled to 55"
+            if (currentConfig.jpegQuality > 62) {
+                updateConfig(currentConfig.copy(jpegQuality = 62))
+                errorFlow.value = "Low memory — quality throttled to 62 (tap Dismiss, raise in Settings if needed)"
             }
+            MemoryManager.logMemory(TAG)
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            Log.i(TAG, "onTrimMemory $level — moderate, no throttle (monitoring)")
             MemoryManager.logMemory(TAG)
         }
     }

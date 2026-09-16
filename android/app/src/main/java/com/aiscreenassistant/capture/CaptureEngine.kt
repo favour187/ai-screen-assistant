@@ -134,7 +134,7 @@ class CaptureEngine(
         handler = Handler(handlerThread!!.looper)
 
         // Use maxImages 2 to keep memory low — we acquireLatest
-        imageReader = ImageReader.newInstance(currentWidth, currentHeight, PixelFormat.RGBA_8888, 2).apply {
+        imageReader = ImageReader.newInstance(currentWidth, currentHeight, PixelFormat.RGBA_8888, 3).apply {
             // We'll poll via acquireLatestImage in loop, not via listener, to control rate.
             // Listener optional for wake-up, but we poll by interval.
         }
@@ -320,6 +320,23 @@ class CaptureEngine(
                 _lastDiffPercent.value = diff
                 if (!shouldSend) {
                     _skippedFrames.value += 1
+                    // Still provide preview for UI so it never stays black, even when skipping backend queue
+                    try {
+                        // Create a downscaled copy for preview to avoid holding full-res
+                        val previewBmp = if (cropped.width > 480) {
+                            Bitmap.createScaledBitmap(cropped, 480, (cropped.height * 480f / cropped.width).toInt(), true)
+                        } else {
+                            cropped.copy(Bitmap.Config.ARGB_8888, false)
+                        }
+                        if (previewBmp != null) {
+                            // Post to main to avoid threading issues with Compose
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                onPreviewFrame?.invoke(previewBmp)
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // preview failure is non-fatal
+                    }
                     cropped.recycle()
                     image.close()
                     cont.resume(null); return@suspendCancellableCoroutine

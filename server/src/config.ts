@@ -5,9 +5,18 @@ export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   openrouter: {
-    apiKey: process.env.OPENROUTER_API_KEY || '',
-    baseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-    model: process.env.OPENROUTER_MODEL || 'anthropic/claude-3.5-sonnet',
+    // Supports OpenRouter (default) and Featherless (or any OpenAI-compatible) via aliases.
+    // Set either OPENROUTER_API_KEY or FEATHERLESS_API_KEY / AI_API_KEY. Base URL auto-switches if FEATHERLESS_* is used.
+    apiKey: process.env.OPENROUTER_API_KEY || process.env.FEATHERLESS_API_KEY || process.env.AI_API_KEY || '',
+    baseUrl:
+      process.env.OPENROUTER_BASE_URL ||
+      process.env.FEATHERLESS_BASE_URL ||
+      (process.env.FEATHERLESS_API_KEY ? 'https://api.featherless.ai/v1' : 'https://openrouter.ai/api/v1'),
+    model:
+      process.env.OPENROUTER_MODEL ||
+      process.env.FEATHERLESS_MODEL ||
+      process.env.AI_MODEL ||
+      'anthropic/claude-3.5-sonnet',
     appUrl: process.env.OPENROUTER_APP_URL || 'https://github.com/ai-screen-assistant',
     appName: process.env.OPENROUTER_APP_NAME || 'AI Screen Assistant',
     // Timeouts and retries for production
@@ -16,7 +25,7 @@ export const config = {
     maxRetries: parseInt(process.env.OPENROUTER_MAX_RETRIES || '3', 10),
     retryBaseDelayMs: parseInt(process.env.OPENROUTER_RETRY_DELAY_MS || '800', 10),
     // Model allowlist: empty means allow any; comma-separated to restrict
-    allowedModels: (process.env.OPENROUTER_ALLOWED_MODELS || '')
+    allowedModels: (process.env.OPENROUTER_ALLOWED_MODELS || process.env.FEATHERLESS_ALLOWED_MODELS || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
@@ -52,12 +61,13 @@ export const config = {
 export function assertConfig() {
   if (!config.openrouter.apiKey) {
     console.warn(
-      '[config] OPENROUTER_API_KEY not set — /api/* will return 503 until configured. Health check will report degraded.'
+      '[config] OPENROUTER_API_KEY / FEATHERLESS_API_KEY not set — /api/* will return 503 until configured. Set either on Render → Environment. Health check will report degraded. OpenRouter supports vision (use vision-capable model like anthropic/claude-3.5-sonnet or qwen/qwen2-vl-72b). Featherless alternative: set FEATHERLESS_API_KEY and optionally FEATHERLESS_BASE_URL=https://api.featherless.ai/v1 + FEATHERLESS_MODEL.'
     );
   }
   if (config.openrouter.apiKey && config.openrouter.apiKey.length < 20) {
-    console.warn('[config] OPENROUTER_API_KEY looks short/invalid');
+    console.warn('[config] API key looks short/invalid — check OPENROUTER_API_KEY / FEATHERLESS_API_KEY');
   }
+  console.log(`[config] AI provider baseUrl=${config.openrouter.baseUrl} model=${config.openrouter.model} key=${config.openrouter.apiKey ? 'set' : 'missing'}`);
 }
 
 export function isModelAllowed(model: string): boolean {

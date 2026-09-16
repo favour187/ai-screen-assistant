@@ -8,7 +8,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aiscreenassistant.capture.CaptureConfig
 import com.aiscreenassistant.network.ApiClient
+import com.aiscreenassistant.network.DirectAiPrefs
 import com.aiscreenassistant.service.ScreenCaptureService
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -31,6 +33,16 @@ class AssistantViewModel : ViewModel() {
 
     private val _config = MutableStateFlow(CaptureConfig())
     val config: StateFlow<CaptureConfig> = _config
+
+    // Direct AI fallback (bypasses backend when 404) — user can set Featherless/OpenRouter key directly in app
+    private val _directEnabled = MutableStateFlow(false)
+    val directEnabled: StateFlow<Boolean> = _directEnabled
+    private val _directBaseUrl = MutableStateFlow(DirectAiPrefs.DEFAULT_BASE_URL)
+    val directBaseUrl: StateFlow<String> = _directBaseUrl
+    private val _directApiKey = MutableStateFlow("")
+    val directApiKey: StateFlow<String> = _directApiKey
+    private val _directModel = MutableStateFlow(DirectAiPrefs.DEFAULT_MODEL_FEATHERLESS)
+    val directModel: StateFlow<String> = _directModel
 
     // Service-backed state — delegates to ScreenCaptureService companion flows when service alive,
     // otherwise local fallback.
@@ -84,7 +96,15 @@ class AssistantViewModel : ViewModel() {
                 _localHealth.value = "${h.status} · OpenRouter:${h.checks.openrouter}"
                 ScreenCaptureService.healthFlow.value = _localHealth.value
             } catch (e: Exception) {
-                _localHealth.value = "unreachable"
+                val msg = e.message ?: "unknown"
+                val friendly = when {
+                    msg.contains("<!DOCTYPE", ignoreCase = true) || msg.contains("<html", ignoreCase = true) -> "backend not deployed"
+                    msg.contains("404", true) -> "unreachable (404) — verify BACKEND_URL"
+                    msg.contains("Unable to resolve host", true) -> "no network"
+                    else -> "unreachable"
+                }
+                _localHealth.value = friendly
+                ScreenCaptureService.healthFlow.value = friendly
             }
         }
     }
@@ -118,6 +138,41 @@ class AssistantViewModel : ViewModel() {
         val stream = java.io.ByteArrayOutputStream()
         bmp.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         return stream.toByteArray()
+    }
+
+    // Direct AI prefs - load/save
+    fun loadDirectPrefs(context: android.content.Context) {
+        viewModelScope.launch {
+            try {
+                val cfg = DirectAiPrefs.getSnapshot(context)
+                _directEnabled.value = cfg.enabled
+                _directBaseUrl.value = cfg.baseUrl
+                _directApiKey.value = cfg.apiKey
+                _directModel.value = cfg.model
+            } catch (_: Exception) {}
+            // Also collect flows for live updates
+            launch { DirectAiPrefs.enabledFlow(context).collect { _directEnabled.value = it } }
+            launch { DirectAiPrefs.baseUrlFlow(context).collect { _directBaseUrl.value = it } }
+            launch { DirectAiPrefs.apiKeyFlow(context).collect { _directApiKey.value = it } }
+            launch { DirectAiPrefs.modelFlow(context).collect { _directModel.value = it } }
+        }
+    }
+
+    fun setDirectEnabled(context: android.content.Context, v: Boolean) {
+        _directEnabled.value = v
+        viewModelScope.launch { DirectAiPrefs.setEnabled(context, v) }
+    }
+    fun setDirectBaseUrl(context: android.content.Context, v: String) {
+        _directBaseUrl.value = v
+        viewModelScope.launch { DirectAiPrefs.setBaseUrl(context, v) }
+    }
+    fun setDirectApiKey(context: android.content.Context, v: String) {
+        _directApiKey.value = v
+        viewModelScope.launch { DirectAiPrefs.setApiKey(context, v) }
+    }
+    fun setDirectModel(context: android.content.Context, v: String) {
+        _directModel.value = v
+        viewModelScope.launch { DirectAiPrefs.setModel(context, v) }
     }
 
     // Service lifecycle helpers

@@ -23,17 +23,21 @@ export interface OpenRouterChatParams {
 
 function headers() {
   if (!config.openrouter.apiKey) {
-    const err: any = new Error('OPENROUTER_API_KEY not configured');
+    const err: any = new Error('OPENROUTER_API_KEY / FEATHERLESS_API_KEY not configured — set on Render Environment');
     err.status = 503;
     err.code = 'NOT_CONFIGURED';
     throw err;
   }
-  return {
+  const baseHeaders: Record<string, string> = {
     Authorization: `Bearer ${config.openrouter.apiKey}`,
     'Content-Type': 'application/json',
-    'HTTP-Referer': config.openrouter.appUrl,
-    'X-Title': config.openrouter.appName,
-  } as Record<string, string>;
+  };
+  // OpenRouter requires Referer/Title for ranking; Featherless/others should not need them (but harmless if sent)
+  if (config.openrouter.baseUrl.includes('openrouter.ai')) {
+    baseHeaders['HTTP-Referer'] = config.openrouter.appUrl;
+    baseHeaders['X-Title'] = config.openrouter.appName;
+  }
+  return baseHeaders;
 }
 
 function resolveModel(requested?: string): string {

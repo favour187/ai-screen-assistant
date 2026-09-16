@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import android.view.*
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
@@ -24,25 +25,28 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
 
 /**
  * Manages the floating result window (WindowManager overlay).
  * Shown when user switches apps — OS permission Settings.canDrawOverlays().
  * Draggable bubble that expands to show streaming assistant output.
  *
- * Independent from target app — uses WindowManager TYPE_APPLICATION_OVERLAY
- * which is OS-provided and requires explicit user grant in Settings.
+ * Fixed: Proper LifecycleOwner + ViewModelStoreOwner for ComposeView in overlay (no SavedState needed).
+ * Previous version used a dummy owner without savedState, causing Compose to not render.
  */
 class FloatingOverlayManager(private val context: Context) {
 
     private var windowManager: WindowManager? = null
     private var overlayView: FrameLayout? = null
     private var composeView: ComposeView? = null
-    private var lifecycleOwner: LifecycleOwner? = null
+    private var lifecycleOwner: OverlayLifecycleOwner? = null
     private var isShowing = false
     private var isExpanded = false
 
@@ -64,7 +68,15 @@ class FloatingOverlayManager(private val context: Context) {
 
     fun show() {
         if (isShowing) return
-        if (!canShow()) return
+        if (!canShow()) {
+            Log.w("FloatingOverlay", "cannot show — overlay permission not granted")
+            return
+        }
+        // Ensure WindowManager ops on main thread
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { show() }
+            return
+        }
         try {
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             val layoutParams = WindowManager.LayoutParams(
@@ -75,7 +87,6 @@ class FloatingOverlayManager(private val context: Context) {
                 else
                     @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                         WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
@@ -88,28 +99,35 @@ class FloatingOverlayManager(private val context: Context) {
             }
             params = layoutParams
 
-            val frame = FrameLayout(context)
-            val lifecycle = LifecycleRegistry(object : LifecycleOwner {
-                override val lifecycle = LifecycleRegistry(this)
-            })
-            val owner = object : LifecycleOwner {
-                override val lifecycle = LifecycleRegistry(this).apply { currentState = Lifecycle.State.RESUMED }
-            }
+            // Proper lifecycle owner for Compose in WindowManager
+            val owner = OverlayLifecycleOwner()
+            owner.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
             lifecycleOwner = owner
-            // Setup ComposeView with proper owners for Compose to work in overlay
+
+            val frame = FrameLayout(context)
             val cv = ComposeView(context).apply {
                 setViewTreeLifecycleOwner(owner)
-                // SavedStateRegistry owner stub — overlay doesn't need saved state, but Compose requires it for some APIs
-                // We skip setting it to keep lightweight; most composables work without it.
+                setViewTreeViewModelStoreOwner(owner)
                 setContent {
                     OverlayContent()
                 }
             }
-            composeView = cv
+            // Must handle START/RESUME after setContent
+            owner.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            owner.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+
             frame.addView(cv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
 
-            // Drag handling on the whole frame
+            // Drag handling — attach to frame, but also make bubble draggable
+            val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    // Tag single tap as handled for click, but drag handles move
+                    return false
+                }
+            })
+
             frame.setOnTouchListener { v, event ->
+                gestureDetector.onTouchEvent(event)
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = params!!.x
@@ -119,9 +137,14 @@ class FloatingOverlayManager(private val context: Context) {
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params!!.x = initialX - (event.rawX - initialTouchX).toInt()
-                        params!!.y = initialY + (event.rawY - initialTouchY).toInt()
-                        try { windowManager?.updateViewLayout(frame, params) } catch (_: Exception) {}
+                        // Only move if drag distance > 10dp (avoid click jitter)
+                        val dx = event.rawX - initialTouchX
+                        val dy = event.rawY - initialTouchY
+                        if (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10) {
+                            params!!.x = initialX - dx.toInt()
+                            params!!.y = initialY + dy.toInt()
+                            try { windowManager?.updateViewLayout(frame, params) } catch (_: Exception) {}
+                        }
                         true
                     }
                     else -> false
@@ -129,20 +152,33 @@ class FloatingOverlayManager(private val context: Context) {
             }
 
             overlayView = frame
+            composeView = cv
             windowManager?.addView(frame, layoutParams)
             isShowing = true
+            Log.i("FloatingOverlay", "overlay shown at ${layoutParams.x},${layoutParams.y} expanded=$isExpanded canShow=${canShow()}")
         } catch (e: Exception) {
-            android.util.Log.e("FloatingOverlay", "show failed", e)
+            Log.e("FloatingOverlay", "show failed", e)
+            // Clean up partially created owner
+            try { lifecycleOwner?.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY) } catch (_: Exception) {}
+            lifecycleOwner = null
         }
     }
 
     fun hide() {
         if (!isShowing) return
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { hide() }
+            return
+        }
         try {
+            lifecycleOwner?.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             overlayView?.let { windowManager?.removeView(it) }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("FloatingOverlay", "hide failed", e)
+        }
         overlayView = null
         composeView = null
+        lifecycleOwner = null
         isShowing = false
         isExpanded = false
     }
@@ -150,14 +186,12 @@ class FloatingOverlayManager(private val context: Context) {
     fun updateContent(text: String, streaming: Boolean) {
         streamingText = text
         isStreaming = streaming
-        // Compose recomposes automatically via state
     }
 
     @Composable
     private fun OverlayContent() {
         MaterialTheme(colorScheme = lightColorScheme()) {
             if (!isExpanded) {
-                // Collapsed bubble — 56dp draggable
                 Box(
                     modifier = Modifier
                         .size(56.dp)
@@ -178,7 +212,6 @@ class FloatingOverlayManager(private val context: Context) {
                     }
                 }
             } else {
-                // Expanded card — 320dp width
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.cardElevation(8.dp),
@@ -226,4 +259,20 @@ class FloatingOverlayManager(private val context: Context) {
     }
 
     fun isVisible(): Boolean = isShowing
+
+    /**
+     * Proper lifecycle owner for overlay ComposeView.
+     * Implements LifecycleOwner + ViewModelStoreOwner so Compose can recompose inside WindowManager.
+     * SavedStateRegistryOwner is intentionally omitted (overlay has no savedState) to avoid missing
+     * androidx.savedstate dependency on older CI images — Compose rendering only needs lifecycle + ViewModelStore.
+     */
+    private class OverlayLifecycleOwner : LifecycleOwner, ViewModelStoreOwner {
+        private val lifecycleRegistry = LifecycleRegistry(this)
+        override val lifecycle: Lifecycle get() = lifecycleRegistry
+        override val viewModelStore: ViewModelStore = ViewModelStore()
+
+        fun handleLifecycleEvent(event: Lifecycle.Event) {
+            lifecycleRegistry.handleLifecycleEvent(event)
+        }
+    }
 }

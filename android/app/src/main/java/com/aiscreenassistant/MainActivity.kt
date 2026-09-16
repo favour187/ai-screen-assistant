@@ -92,6 +92,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         projectionHelper = MediaProjectionHelper(this)
+        // Load Direct AI prefs (Featherless/OpenRouter fallback) — stored locally
+        viewModel.loadDirectPrefs(this)
 
         // Request notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= 33) {
