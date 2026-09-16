@@ -60,12 +60,13 @@ jobs:
       # Never commit .pfx / passwords — they live only in Secrets and ephemeral runner.
       # If secrets are not set, the build will still produce an unsigned installer (for testing).
       - name: Prepare Windows certificate (if provided)
-        if: ${{ secrets.WIN_CSC_LINK != '' }}
+        if: always()
         shell: pwsh
         env:
           CSC_LINK_B64: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
+          if [ -z "$CSC_LINK_B64" ]; then echo "No WIN_CSC_LINK — building unsigned"; exit 0; fi
           # WIN_CSC_LINK may be base64 of pfx or a file path/URL. Handle base64 case:
           # If it looks like base64 (no :// and no .pfx path), decode to cert.pfx
           if ($env:CSC_LINK_B64 -match '^[A-Za-z0-9+/=]+$' -and $env:CSC_LINK_B64.Length -gt 200) {

@@ -65,55 +65,60 @@ jobs:
       #   ANDROID_KEY_PASSWORD — key password
       # Never commit keystore or passwords to git — they live only in GitHub Secrets and the ephemeral runner.
       - name: Decode keystore (signed release only)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: always()
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "No ANDROID_KEYSTORE_BASE64 — skipping signed release"; exit 0; fi
           echo "$KEYSTORE_B64" | base64 --decode > app/release.keystore
           echo "Keystore decoded to app/release.keystore (ephemeral, not committed)"
           ls -lh app/release.keystore
 
       - name: Create signing properties
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: always()
         env:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "No keystore password — skipping"; exit 0; fi
           cat > app/signing.properties <<EOF
           storeFile=release.keystore
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
           EOF
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "No keystore password — skipping"; exit 0; fi
           echo "signing.properties created (ephemeral, .gitignored)"
           # Verify file exists but do not log secrets
           ls -l app/signing.properties
 
       - name: Lint
         run: |
-          if [ -f ./gradlew ]; then ./gradlew lintDebug --stacktrace; else echo "Skip lint — add gradle wrapper"; fi
+          if [ -f ./gradlew ] && ! grep -q "stub" ./gradlew; then ./gradlew lintDebug --stacktrace; elif command -v gradle >/dev/null 2>&1; then gradle lintDebug --stacktrace; else echo "Skip lint — gradle not available"; fi
 
       - name: Assemble Debug APK
         run: |
-          if [ -f ./gradlew ]; then ./gradlew :app:assembleDebug --stacktrace; else echo "Skip debug — add wrapper"; fi
+          if [ -f ./gradlew ] && ! grep -q "stub" ./gradlew; then ./gradlew :app:assembleDebug --stacktrace; elif command -v gradle >/dev/null 2>&1; then gradle :app:assembleDebug --stacktrace; else echo "Skip debug — gradle not available"; fi
 
       - name: Assemble Signed Release APK
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: always()
         env:
+          HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           # Also expose as gradle properties for builds that read from -P
           ORG_GRADLE_PROJECT_storeFile: release.keystore
           ORG_GRADLE_PROJECT_storePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -f ./gradlew ]; then
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then echo "No keystore secret — skipping signed APK"; exit 0; fi
+          if [ -f ./gradlew ] && ! grep -q "stub" ./gradlew; then
             ./gradlew :app:assembleRelease --stacktrace
             ls -lh app/build/outputs/apk/release/
-          else echo "Skip release — no wrapper"; fi
+          elif command -v gradle >/dev/null 2>&1; then gradle :app:assembleRelease --stacktrace; else echo "Skip release — no wrapper"; fi
 
       - name: Assemble Release Bundle (AAB) — for Play Store
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && hashFiles('android/app/build.gradle.kts') != '' }}
+        if: always()
         run: |
           if [ -f ./gradlew ]; then ./gradlew :app:bundleRelease --stacktrace; ls -lh app/build/outputs/bundle/release/ || true; fi
 
@@ -135,7 +140,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Signed Release APK artifact
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-release-apk
